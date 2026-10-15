@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-accent: #FFFF99;
+  --color-brand-accent-hover: #FFF980;
+  --color-brand-accent-light: #FFFFD1;
+  --color-brand-dark: #0A0A0A;
+  --color-brand-blue: #1A1A1A;
+  --color-brand-surface: #141414;
+}
+
+@layer base {
+  :root {
+    --primary: #FFFF99;
+    --primary-rgb: 255, 255, 153;
+    --primary-hover: #FFF980;
+    --primary-text: #0A0A0A;
+    --brand-accent: #FFFF99;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom styling for timeline and dual range slider */
+.dual-slider-thumb {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.dual-slider-thumb:active {
+  cursor: grabbing;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+@keyframes pulseGlowYellow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(255, 255, 153, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 255, 153, 0.85);
+  }
+}
+
+.pulse-glow-yellow {
+  animation: pulseGlowYellow 2.2s infinite;
+}
