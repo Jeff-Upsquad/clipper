@@ -1,5 +1,15 @@
 const { execFile } = require('child_process');
 const https = require('https');
+const path = require('path');
+const fs = require('fs');
+
+function getCookiesPath() {
+  const p1 = path.join(__dirname, '..', 'cookies.txt');
+  if (fs.existsSync(p1)) return p1;
+  const p2 = path.join(__dirname, '..', '..', 'cookies.txt');
+  if (fs.existsSync(p2)) return p2;
+  return null;
+}
 
 const cache = new Map();
 const streamCache = new Map();
@@ -71,15 +81,16 @@ function formatSeconds(secs) {
  */
 function fetchWithYtDlp(videoId) {
   return new Promise((resolve, reject) => {
-    const cookiesPath = path.join(__dirname, '..', 'cookies.txt');
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    const cookieFile = getCookiesPath();
     const args = [
       '-m', 'yt_dlp',
       '--extractor-args', 'youtube:player_client=android_vr,android',
       '-j',
       '--skip-download'
     ];
-    if (fs.existsSync(cookiesPath)) {
-      args.push('--cookies', cookiesPath);
+    if (cookieFile) {
+      args.push('--cookies', cookieFile);
     }
     args.push(url);
 

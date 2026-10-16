@@ -11,6 +11,14 @@ if (!fs.existsSync(CLIPS_DIR)) {
 
 const jobs = new Map();
 
+function getCookiesPath() {
+  const p1 = path.join(__dirname, '..', 'cookies.txt');
+  if (fs.existsSync(p1)) return p1;
+  const p2 = path.join(__dirname, '..', '..', 'cookies.txt');
+  if (fs.existsSync(p2)) return p2;
+  return null;
+}
+
 function formatTimeForFilename(seconds) {
   const s = Math.floor(seconds || 0);
   const m = Math.floor(s / 60);
@@ -247,7 +255,7 @@ function createClipJob({
 
   // Build yt-dlp arguments
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const cookiesPath = path.join(__dirname, '..', 'cookies.txt');
+  const cookieFile = getCookiesPath();
   const args = [
     '-m', 'yt_dlp',
     '--extractor-args', 'youtube:player_client=android_vr,android',
@@ -256,8 +264,8 @@ function createClipJob({
     '--no-playlist'
   ];
 
-  if (fs.existsSync(cookiesPath)) {
-    args.push('--cookies', cookiesPath);
+  if (cookieFile) {
+    args.push('--cookies', cookieFile);
   }
 
   if (type === 'audio') {
