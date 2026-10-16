@@ -85,12 +85,14 @@ function fetchWithYtDlp(videoId) {
     const cookieFile = getCookiesPath();
     const args = [
       '-m', 'yt_dlp',
-      '--extractor-args', 'youtube:player_client=android_vr,android',
       '-j',
       '--skip-download'
     ];
     if (cookieFile) {
       args.push('--cookies', cookieFile);
+      args.push('--remote-components', 'ejs:github');
+    } else {
+      args.push('--extractor-args', 'youtube:player_client=android_vr,android');
     }
     args.push(url);
 

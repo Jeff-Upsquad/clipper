@@ -258,7 +258,6 @@ function createClipJob({
   const cookieFile = getCookiesPath();
   const args = [
     '-m', 'yt_dlp',
-    '--extractor-args', 'youtube:player_client=android_vr,android',
     '--download-sections', `*${startSec}-${endSec}`,
     '--force-keyframes-at-cuts',
     '--no-playlist'
@@ -266,6 +265,9 @@ function createClipJob({
 
   if (cookieFile) {
     args.push('--cookies', cookieFile);
+    args.push('--remote-components', 'ejs:github');
+  } else {
+    args.push('--extractor-args', 'youtube:player_client=android_vr,android');
   }
 
   if (type === 'audio') {
