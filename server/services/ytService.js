@@ -71,14 +71,17 @@ function formatSeconds(secs) {
  */
 function fetchWithYtDlp(videoId) {
   return new Promise((resolve, reject) => {
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    const cookiesPath = path.join(__dirname, '..', 'cookies.txt');
     const args = [
       '-m', 'yt_dlp',
       '--extractor-args', 'youtube:player_client=android_vr,android',
       '-j',
-      '--skip-download',
-      url
+      '--skip-download'
     ];
+    if (fs.existsSync(cookiesPath)) {
+      args.push('--cookies', cookiesPath);
+    }
+    args.push(url);
 
     execFile('python3', args, { maxBuffer: 10 * 1024 * 1024, timeout: 20000 }, (err, stdout, stderr) => {
       if (err) {

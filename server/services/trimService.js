@@ -247,6 +247,7 @@ function createClipJob({
 
   // Build yt-dlp arguments
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const cookiesPath = path.join(__dirname, '..', 'cookies.txt');
   const args = [
     '-m', 'yt_dlp',
     '--extractor-args', 'youtube:player_client=android_vr,android',
@@ -254,6 +255,10 @@ function createClipJob({
     '--force-keyframes-at-cuts',
     '--no-playlist'
   ];
+
+  if (fs.existsSync(cookiesPath)) {
+    args.push('--cookies', cookiesPath);
+  }
 
   if (type === 'audio') {
     args.push('-x');
