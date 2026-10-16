@@ -335,7 +335,22 @@ function createClipJob({
     if (text.includes('ffmpeg') || text.includes('Cutting') || text.includes('frame=')) {
       job.status = 'cutting';
       if (job.percentage < 70) job.percentage = 70;
-      job.eta = 'Trimming frames...';
+
+      const timeMatch = text.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+      if (timeMatch && job.duration > 0) {
+        const h = parseFloat(timeMatch[1]);
+        const m = parseFloat(timeMatch[2]);
+        const s = parseFloat(timeMatch[3]);
+        const curSec = h * 3600 + m * 60 + s;
+        if (curSec > 0) {
+          const ratio = Math.min(0.99, curSec / job.duration);
+          job.percentage = Math.min(98, Math.max(70, Math.round(70 + ratio * 28)));
+          const rem = Math.max(1, Math.ceil(job.duration - curSec));
+          job.eta = `~${rem}s remaining`;
+        }
+      } else {
+        job.eta = 'Trimming frames...';
+      }
       notifyListeners();
     }
   });
