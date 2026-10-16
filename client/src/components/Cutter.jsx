@@ -127,9 +127,17 @@ export default function Cutter({
   };
 
   const clipDuration = Math.max(0.1, endTime - startTime);
+  const getBitrateMbps = (q) => {
+    if (q.includes('4K') || q.includes('2160')) return 22;
+    if (q.includes('1440') || q.includes('2K')) return 12;
+    if (q.includes('1080')) return 4.5;
+    if (q.includes('720')) return 2.2;
+    if (q.includes('480')) return 1.2;
+    return 0.7;
+  };
   const estimatedSizeMb = activeTab === 'video' 
-    ? ((clipDuration * (selectedQuality.includes('1080') ? 4 : (selectedQuality.includes('720') ? 2.2 : 1.2))) / 8).toFixed(1)
-    : ((clipDuration * 320) / (8 * 1024)).toFixed(2);
+    ? ((clipDuration * getBitrateMbps(selectedQuality)) / 8).toFixed(1)
+    : ((clipDuration * (parseInt(selectedQuality.replace(/[^0-9]/g, ''), 10) || 320)) / (8 * 1024)).toFixed(2);
 
   const handleCreateClip = async () => {
     if (isTrimming) return;
@@ -556,7 +564,7 @@ export default function Cutter({
             </div>
             <div className="flex flex-wrap gap-2">
               {activeTab === 'video' ? (
-                ['1080p', '720p', '480p', '360p'].map(res => (
+                ['4K (2160p)', '1440p', '1080p', '720p', '480p', '360p'].map(res => (
                   <button
                     key={res}
                     onClick={() => setSelectedQuality(res)}

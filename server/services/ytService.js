@@ -74,7 +74,7 @@ function fetchWithYtDlp(videoId) {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const args = [
       '-m', 'yt_dlp',
-      '--extractor-args', 'youtube:player_client=android,ios',
+      '--extractor-args', 'youtube:player_client=android_vr,android',
       '-j',
       '--skip-download',
       url
@@ -197,11 +197,14 @@ async function getVideoInfo(urlOrId) {
         });
       }
 
-      const availableRes = ['1080p', '720p', '480p', '360p', '240p', '144p'].map(res => ({
-        name: res,
-        is_available: resolutions.size === 0 || resolutions.has(res),
-        premium: false
-      }));
+      const availableRes = ['4K (2160p)', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'].map(res => {
+        const h = parseInt(res.replace(/[^0-9]/g, ''), 10) || 1080;
+        return {
+          name: res,
+          is_available: resolutions.size === 0 || resolutions.has(`${h}p`) || resolutions.has(`${h}`),
+          premium: false
+        };
+      });
 
       info = {
         id: videoId,
@@ -251,12 +254,16 @@ async function getVideoInfo(urlOrId) {
         views: null,
         description: '',
         mp4_list: apiData.mp4_list || [
+          { name: '4K (2160p)', is_available: true },
+          { name: '1440p', is_available: true },
           { name: '1080p', is_available: true },
           { name: '720p', is_available: true },
           { name: '480p', is_available: true },
           { name: '360p', is_available: true }
         ],
         webm_list: apiData.webm_list || [
+          { name: '4K (2160p)', is_available: true },
+          { name: '1440p', is_available: true },
           { name: '1080p', is_available: true },
           { name: '720p', is_available: true },
           { name: '360p', is_available: true }

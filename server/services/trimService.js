@@ -249,7 +249,7 @@ function createClipJob({
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const args = [
     '-m', 'yt_dlp',
-    '--extractor-args', 'youtube:player_client=android,ios',
+    '--extractor-args', 'youtube:player_client=android_vr,android',
     '--download-sections', `*${startSec}-${endSec}`,
     '--force-keyframes-at-cuts',
     '--no-playlist'
@@ -262,12 +262,20 @@ function createClipJob({
     args.push('--audio-quality', `${bitrate}k`);
   } else {
     // Video format selection
-    const maxH = quality.replace(/[^0-9]/g, '') || '1080';
+    let maxH = 1080;
+    if (quality.includes('4K') || quality.includes('2160')) {
+      maxH = 2160;
+    } else if (quality.includes('1440') || quality.includes('2K')) {
+      maxH = 1440;
+    } else {
+      maxH = parseInt(quality.replace(/[^0-9]/g, ''), 10) || 1080;
+    }
+
     if (ext === 'webm') {
       args.push('-f', `bestvideo[height<=${maxH}][ext=webm]+bestaudio[ext=webm]/bestvideo[height<=${maxH}]+bestaudio/best[height<=${maxH}]/best`);
       args.push('--merge-output-format', 'webm');
     } else {
-      args.push('-f', `bestvideo[height<=${maxH}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${maxH}]+bestaudio/best[height<=${maxH}]/best`);
+      args.push('-f', `bestvideo[height<=${maxH}]+bestaudio[ext=m4a]/bestvideo[height<=${maxH}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${maxH}]+bestaudio/best[height<=${maxH}]/best`);
       args.push('--merge-output-format', 'mp4');
     }
   }
