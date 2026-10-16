@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import Cutter from './components/Cutter';
@@ -12,7 +12,9 @@ import UseCasesSection from './components/UseCasesSection';
 import FaqSection from './components/FaqSection';
 import Footer from './components/Footer';
 import ClipsDrawer from './components/ClipsDrawer';
+import VideoHistoryDrawer from './components/VideoHistoryDrawer';
 import ClipPreviewModal from './components/ClipPreviewModal';
+import { useVideoHistory } from './hooks/useVideoHistory';
 import { extractYouTubeId } from './utils/time';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -25,7 +27,103 @@ export default function App() {
   // Clips list and drawer
   const [clips, setClips] = useState([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [activePreviewClip, setActivePreviewClip] = useState(null);
+
+  // Video History & Navigation Stack
+  const {
+    history,
+    recordVideo,
+    canGoBack,
+    canGoForward,
+    previousVideo,
+    nextVideo,
+    goBack,
+    goForward,
+    pushNav,
+    syncNavIndex,
+    removeVideo,
+    clearHistory
+  } = useVideoHistory();
+
+  const loadVideo = useCallback(async (urlOrId, options = {}) => {
+    const { pushUrl = true, isNavigating = false } = options;
+    if (!urlOrId) return;
+
+    const videoId = extractYouTubeId(urlOrId);
+    if (!videoId) {
+      setVideoError('Invalid YouTube video link or ID');
+      return;
+    }
+
+    setCurrentVideoId(videoId);
+    setLoadingVideo(true);
+    setVideoError('');
+    if (pushUrl) {
+      window.history.pushState(null, '', `/cutter/${videoId}`);
+    }
+
+    // Update navigation stack & initial history entry
+    if (!isNavigating) {
+      pushNav(videoId);
+    } else {
+      syncNavIndex(videoId);
+    }
+    recordVideo({ id: videoId });
+
+    try {
+      const res = await fetch(`/api/youtube/${videoId}/info`);
+      const json = await res.json();
+      if (!json.success || !json.data) {
+        throw new Error(json.error || 'Failed to fetch video details');
+      }
+      setVideoData(json.data);
+      recordVideo(json.data);
+    } catch (err) {
+      console.error(err);
+      setVideoError(err.message || 'Error loading video');
+    } finally {
+      setLoadingVideo(false);
+    }
+  }, [pushNav, syncNavIndex, recordVideo]);
+
+  // Back / Forward navigation handlers
+  const handleGoBack = useCallback(() => {
+    const prevId = goBack();
+    if (prevId) {
+      loadVideo(prevId, { pushUrl: true, isNavigating: true });
+    }
+  }, [goBack, loadVideo]);
+
+  const handleGoForward = useCallback(() => {
+    const nextId = goForward();
+    if (nextId) {
+      loadVideo(nextId, { pushUrl: true, isNavigating: true });
+    }
+  }, [goForward, loadVideo]);
+
+  // Keyboard shortcut listener: Alt + ArrowLeft (Back), Alt + ArrowRight (Forward)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (
+        e.target.tagName === 'INPUT' || 
+        e.target.tagName === 'TEXTAREA' || 
+        e.target.isContentEditable
+      ) {
+        return;
+      }
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleGoBack();
+      } else if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleGoForward();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleGoBack, handleGoForward]);
 
   // Initial URL check: support /cutter/:id or query param ?v=
   useEffect(() => {
@@ -40,21 +138,20 @@ export default function App() {
         detectedId = params.get('v');
       }
 
-      // If URL is root or no ID found, check if requested directly with AgwWYSlFCkE
       if (detectedId) {
-        loadVideo(detectedId);
+        loadVideo(detectedId, { pushUrl: false, isNavigating: false });
       } else {
         // Default to AgwWYSlFCkE if requested in prompt
         const initialDefaultId = 'AgwWYSlFCkE';
         window.history.replaceState(null, '', `/cutter/${initialDefaultId}`);
-        loadVideo(initialDefaultId);
+        loadVideo(initialDefaultId, { pushUrl: false, isNavigating: false });
       }
     };
 
     handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);
     return () => window.removeEventListener('popstate', handleUrlChange);
-  }, []);
+  }, [loadVideo]);
 
   // Fetch session clips on mount
   useEffect(() => {
@@ -67,33 +164,6 @@ export default function App() {
       })
       .catch(err => console.error('Failed to load clips:', err));
   }, []);
-
-  const loadVideo = async (urlOrId) => {
-    const videoId = extractYouTubeId(urlOrId);
-    if (!videoId) {
-      setVideoError('Invalid YouTube video link or ID');
-      return;
-    }
-
-    setCurrentVideoId(videoId);
-    setLoadingVideo(true);
-    setVideoError('');
-    window.history.pushState(null, '', `/cutter/${videoId}`);
-
-    try {
-      const res = await fetch(`/api/youtube/${videoId}/info`);
-      const json = await res.json();
-      if (!json.success || !json.data) {
-        throw new Error(json.error || 'Failed to fetch video details');
-      }
-      setVideoData(json.data);
-    } catch (err) {
-      console.error(err);
-      setVideoError(err.message || 'Error loading video');
-    } finally {
-      setLoadingVideo(false);
-    }
-  };
 
   const handleReset = () => {
     setCurrentVideoId(null);
@@ -127,10 +197,18 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       {/* Top Navigation */}
       <Navbar
-        onSelectVideo={loadVideo}
+        onSelectVideo={(id) => loadVideo(id)}
         currentVideoId={currentVideoId}
         clipsCount={clips.length}
         onOpenClips={() => setIsDrawerOpen(true)}
+        historyCount={history.length}
+        onOpenHistory={() => setIsHistoryOpen(true)}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        previousVideo={previousVideo}
+        nextVideo={nextVideo}
+        onGoBack={handleGoBack}
+        onGoForward={handleGoForward}
       />
 
       {/* Main Content Area */}
@@ -167,14 +245,31 @@ export default function App() {
         {!loadingVideo && videoData ? (
           <div className="py-4">
             <Cutter
+              key={videoData.id}
               videoData={videoData}
               onReset={handleReset}
               onClipCreated={handleClipCreated}
               onOpenPreview={(clip) => setActivePreviewClip(clip)}
+              history={history}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              previousVideo={previousVideo}
+              nextVideo={nextVideo}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+              onSelectVideo={(id) => loadVideo(id)}
+              onRemoveVideo={removeVideo}
+              onOpenHistory={() => setIsHistoryOpen(true)}
             />
           </div>
         ) : (
-          !loadingVideo && <Hero onSelectVideo={loadVideo} />
+          !loadingVideo && (
+            <Hero 
+              onSelectVideo={(id) => loadVideo(id)} 
+              history={history}
+              onOpenHistory={() => setIsHistoryOpen(true)}
+            />
+          )
         )}
 
         {/* Informational and Conversion Sections matching Clipscutter */}
@@ -189,7 +284,18 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <Footer onSelectVideo={loadVideo} />
+      <Footer onSelectVideo={(id) => loadVideo(id)} />
+
+      {/* Side Drawer for Connected Video History */}
+      <VideoHistoryDrawer
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        history={history}
+        currentVideoId={currentVideoId}
+        onSelectVideo={(id) => loadVideo(id)}
+        onRemoveVideo={removeVideo}
+        onClearHistory={clearHistory}
+      />
 
       {/* Side Drawer for All Clipped Items */}
       <ClipsDrawer

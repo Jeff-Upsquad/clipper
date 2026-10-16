@@ -1,18 +1,30 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Scissors, Play, Square, Download, Share2, Eye, Plus, 
-  Sparkles, CheckCircle, RefreshCw, AlertCircle, Film, Music, Clock
+  Sparkles, CheckCircle, RefreshCw, AlertCircle, Film, Music, Clock,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import VideoPlayer from './VideoPlayer';
 import DualRangeSlider from './DualRangeSlider';
+import VideoHistoryStrip from './VideoHistoryStrip';
 import { formatTime, parseTime } from '../utils/time';
 
 export default function Cutter({
   videoData,
   onReset,
   onClipCreated,
-  onOpenPreview
+  onOpenPreview,
+  history = [],
+  canGoBack = false,
+  canGoForward = false,
+  previousVideo = null,
+  nextVideo = null,
+  onGoBack,
+  onGoForward,
+  onSelectVideo,
+  onRemoveVideo,
+  onOpenHistory
 }) {
   const playerRef = useRef(null);
 
@@ -37,6 +49,19 @@ export default function Cutter({
   const [currentJob, setCurrentJob] = useState(null);
   const [trimError, setTrimError] = useState('');
   const [isPreviewing, setIsPreviewing] = useState(false);
+
+  // Reset cutter state whenever the video changes
+  useEffect(() => {
+    const curDuration = videoData.duration || 19;
+    const curEnd = Math.min(curDuration, Math.max(1, Math.min(10, curDuration)));
+    setStartTime(0);
+    setEndTime(curEnd);
+    setCurrentTime(0);
+    setIsTrimming(false);
+    setCurrentJob(null);
+    setTrimError('');
+    setIsPreviewing(false);
+  }, [videoData.id]);
 
   useEffect(() => {
     setStartInput(formatTime(startTime, true));
@@ -217,15 +242,75 @@ export default function Cutter({
           </p>
         </div>
 
-        {/* Change Video Button */}
-        <button
-          onClick={onReset}
-          className="self-start sm:self-center px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-[#FFFF99] text-slate-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 border border-slate-300"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Change Video</span>
-        </button>
+        {/* Navigation & Actions */}
+        <div className="flex items-center gap-2 self-start sm:self-center shrink-0 flex-wrap">
+          {/* Back & Forward Navigation Controls */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-300">
+            <button
+              onClick={onGoBack}
+              disabled={!canGoBack}
+              className={`p-1.5 rounded-lg border transition-all ${
+                canGoBack
+                  ? 'bg-white hover:bg-[#FFFF99] text-slate-900 border-slate-900 shadow-2xs cursor-pointer active:scale-95'
+                  : 'bg-transparent text-slate-300 border-transparent cursor-not-allowed opacity-40'
+              }`}
+              title={previousVideo ? `Jump back to: ${previousVideo.title || previousVideo.id}` : 'No previous video'}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onGoForward}
+              disabled={!canGoForward}
+              className={`p-1.5 rounded-lg border transition-all ${
+                canGoForward
+                  ? 'bg-white hover:bg-[#FFFF99] text-slate-900 border-slate-900 shadow-2xs cursor-pointer active:scale-95'
+                  : 'bg-transparent text-slate-300 border-transparent cursor-not-allowed opacity-40'
+              }`}
+              title={nextVideo ? `Jump forward to: ${nextVideo.title || nextVideo.id}` : 'No forward video'}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* History Button */}
+          {history.length > 0 && (
+            <button
+              onClick={onOpenHistory}
+              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-[#FFFF99] text-slate-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-300"
+              title="View all previously connected videos"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>History ({history.length})</span>
+            </button>
+          )}
+
+          {/* Change Video Button */}
+          <button
+            onClick={onReset}
+            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-[#FFFF99] text-slate-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 border border-slate-300"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Change Video</span>
+          </button>
+        </div>
       </div>
+
+      {/* Quick Jump Strip for Connected Videos */}
+      {history.length > 1 && (
+        <VideoHistoryStrip
+          history={history}
+          currentVideoId={videoData.id}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          previousVideo={previousVideo}
+          nextVideo={nextVideo}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+          onSelectVideo={onSelectVideo}
+          onRemoveVideo={onRemoveVideo}
+          onOpenDrawer={onOpenHistory}
+        />
+      )}
 
       {/* Video Player */}
       <VideoPlayer

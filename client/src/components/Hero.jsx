@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Scissors, Play, Sparkles, CheckCircle2, Zap } from 'lucide-react';
+import { Scissors, Play, Sparkles, CheckCircle2, Zap, Clock, ArrowRight } from 'lucide-react';
 import { extractYouTubeId } from '../utils/time';
 
-export default function Hero({ onSelectVideo }) {
+export default function Hero({ onSelectVideo, history = [], onOpenHistory }) {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
 
@@ -80,6 +80,46 @@ export default function Hero({ onSelectVideo }) {
             </p>
           )}
         </div>
+
+        {/* Recently Connected Videos Section (if any) */}
+        {history.length > 0 && (
+          <div className="max-w-2xl mx-auto mb-6 p-3 bg-white/80 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <div className="flex items-center gap-1.5 text-xs font-black text-slate-800">
+                <Clock className="w-3.5 h-3.5 text-slate-700" />
+                <span>Jump back to recent videos:</span>
+              </div>
+              <button
+                onClick={onOpenHistory}
+                className="text-[11px] font-bold text-slate-500 hover:text-black transition-colors cursor-pointer"
+              >
+                View all ({history.length})
+              </button>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+              {history.slice(0, 5).map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => onSelectVideo(v.id)}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-[#FFFF99] border border-slate-200 hover:border-slate-800 transition-all text-xs font-bold flex items-center gap-2 shrink-0 cursor-pointer shadow-2xs group"
+                >
+                  <img
+                    src={v.thumbnail || `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`}
+                    alt=""
+                    className="w-5 h-4 object-cover rounded shrink-0 border border-slate-300"
+                    onError={(e) => {
+                      e.target.src = `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`;
+                    }}
+                  />
+                  <span className="truncate max-w-[130px] text-slate-800 group-hover:text-black text-left">
+                    {v.title || v.id}
+                  </span>
+                  <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Quick sample chips */}
         <div className="flex flex-wrap items-center justify-center gap-2 max-w-2xl mx-auto mb-8 text-xs text-slate-500">
