@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { getStreamUrl, isYtDlpBlocked, markYtDlpBlocked } = require('./ytService');
 
 const CLIPS_DIR = path.join(__dirname, '..', 'public', 'clips');
 if (!fs.existsSync(CLIPS_DIR)) {
@@ -46,6 +47,130 @@ function deleteJob(clipId) {
     return true;
   }
   return false;
+}
+
+function finalizeJobSuccess(job, actualPath, notifyListeners) {
+  const stats = fs.statSync(actualPath);
+  job.filePath = actualPath;
+  job.fileSize = stats.size;
+  job.formattedSize = (stats.size / (1024 * 1024)).toFixed(2) + ' MB';
+  job.status = 'finished';
+  job.percentage = 100;
+  job.eta = 'Completed';
+  console.log(`[TrimService] Job ${job.clipId} completed successfully! Size: ${job.formattedSize}`);
+  notifyListeners();
+}
+
+/**
+ * Fallback/Direct trimmer using proxied HTTP stream URL + ffmpeg
+ */
+async function runFfmpegStreamTrim(job, ext, notifyListeners, reencodeMp4 = false) {
+  try {
+    job.status = 'downloading';
+    job.percentage = Math.max(job.percentage || 10, 15);
+    job.eta = 'Fetching stream...';
+    notifyListeners();
+
+    const streamUrl = await getStreamUrl(job.videoId);
+    const outPath = path.join(CLIPS_DIR, `${job.clipId}.${ext}`);
+
+    const ffArgs = [
+      '-y',
+      '-ss', String(job.startTime),
+      '-to', String(job.endTime),
+      '-i', streamUrl
+    ];
+
+    if (job.type === 'audio') {
+      const bitrate = (job.quality || '').replace(/[^0-9]/g, '') || '192';
+      ffArgs.push('-vn');
+      if (ext === 'mp3') {
+        ffArgs.push('-c:a', 'libmp3lame', '-b:a', `${bitrate}k`);
+      } else if (ext === 'm4a') {
+        ffArgs.push('-c:a', 'aac', '-b:a', `${bitrate}k`);
+      } else if (ext === 'opus' || ext === 'webm') {
+        ffArgs.push('-c:a', 'libopus', '-b:a', `${bitrate}k`);
+      } else if (ext === 'ogg') {
+        ffArgs.push('-c:a', 'libvorbis', '-b:a', `${bitrate}k`);
+      } else if (ext === 'wav') {
+        ffArgs.push('-c:a', 'pcm_s16le');
+      } else {
+        ffArgs.push('-c:a', 'libmp3lame', '-b:a', `${bitrate}k`);
+      }
+    } else {
+      if (ext === 'webm') {
+        ffArgs.push(
+          '-c:v', 'libvpx-vp9',
+          '-crf', '32',
+          '-b:v', '0',
+          '-deadline', 'realtime',
+          '-cpu-used', '5',
+          '-c:a', 'libopus'
+        );
+      } else if (reencodeMp4) {
+        ffArgs.push(
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-crf', '23',
+          '-c:a', 'aac',
+          '-movflags', '+faststart'
+        );
+      } else {
+        ffArgs.push(
+          '-c', 'copy',
+          '-movflags', '+faststart'
+        );
+      }
+    }
+
+    ffArgs.push(outPath);
+
+    console.log(`[TrimService] Running ffmpeg stream trim for job ${job.clipId} (${job.startTime}s - ${job.endTime}s, ${job.type}/${ext})`);
+    job.status = 'cutting';
+    job.percentage = 25;
+    job.eta = 'Trimming stream...';
+    notifyListeners();
+
+    const ffProc = spawn('ffmpeg', ffArgs);
+
+    ffProc.stderr.on('data', (data) => {
+      const text = data.toString();
+      const timeMatch = text.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+      if (timeMatch) {
+        const h = parseFloat(timeMatch[1]);
+        const m = parseFloat(timeMatch[2]);
+        const s = parseFloat(timeMatch[3]);
+        const currentSec = h * 3600 + m * 60 + s;
+        if (currentSec > 0 && job.duration > 0) {
+          const ratio = Math.min(1, currentSec / job.duration);
+          job.percentage = Math.min(95, Math.max(25, Math.round(25 + ratio * 70)));
+          const rem = Math.max(1, Math.ceil((1 - ratio) * 4));
+          job.eta = `~${rem}s remaining`;
+          job.status = ratio > 0.85 ? 'remuxing' : 'cutting';
+          notifyListeners();
+        }
+      }
+    });
+
+    ffProc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outPath) && fs.statSync(outPath).size > 1024) {
+        finalizeJobSuccess(job, outPath, notifyListeners);
+      } else if (!reencodeMp4 && job.type === 'video' && ext === 'mp4') {
+        console.warn(`[TrimService] Lossless copy failed for ${job.clipId}, retrying with fast re-encode...`);
+        runFfmpegStreamTrim(job, ext, notifyListeners, true);
+      } else {
+        job.status = 'error';
+        job.error = `Stream trimming failed (code ${code})`;
+        console.error(`[TrimService] ffmpeg stream trim failed for job ${job.clipId} with code ${code}`);
+        notifyListeners();
+      }
+    });
+  } catch (err) {
+    job.status = 'error';
+    job.error = err.message || 'Failed to trim video stream';
+    console.error(`[TrimService] Stream trim error for ${job.clipId}:`, err);
+    notifyListeners();
+  }
 }
 
 /**
@@ -114,6 +239,12 @@ function createClipJob({
     });
   };
 
+  // If yt-dlp is known to be blocked on this server IP, go directly to fast ffmpeg stream trim
+  if (isYtDlpBlocked()) {
+    runFfmpegStreamTrim(job, ext, notifyListeners);
+    return job;
+  }
+
   // Build yt-dlp arguments
   const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const args = [
@@ -149,6 +280,7 @@ function createClipJob({
   console.log(`[TrimService] Starting job ${clipId} for ${videoId} (${startSec}s - ${endSec}s, ${type}/${ext}/${quality})`);
 
   const proc = spawn('python3', args);
+  let stderrLog = '';
 
   proc.stdout.on('data', (data) => {
     const text = data.toString();
@@ -176,6 +308,7 @@ function createClipJob({
 
   proc.stderr.on('data', (data) => {
     const text = data.toString();
+    stderrLog += text;
     if (text.includes('ffmpeg') || text.includes('Cutting') || text.includes('frame=')) {
       job.status = 'cutting';
       if (job.percentage < 70) job.percentage = 70;
@@ -191,24 +324,16 @@ function createClipJob({
       const generated = files.find(f => f.startsWith(clipId));
       if (generated) {
         const actualPath = path.join(CLIPS_DIR, generated);
-        const stats = fs.statSync(actualPath);
-        job.filePath = actualPath;
-        job.fileSize = stats.size;
-        job.formattedSize = (stats.size / (1024 * 1024)).toFixed(2) + ' MB';
-        job.status = 'finished';
-        job.percentage = 100;
-        job.eta = 'Completed';
-        console.log(`[TrimService] Job ${clipId} completed successfully! Size: ${job.formattedSize}`);
-      } else {
-        job.status = 'error';
-        job.error = 'Output file not found after processing';
+        finalizeJobSuccess(job, actualPath, notifyListeners);
+        return;
       }
-    } else {
-      job.status = 'error';
-      job.error = `Clipping process exited with code ${code}`;
-      console.error(`[TrimService] Job ${clipId} failed with code ${code}`);
     }
-    notifyListeners();
+
+    if (stderrLog.includes('Sign in to confirm') || stderrLog.includes('not a bot')) {
+      markYtDlpBlocked();
+    }
+    console.warn(`[TrimService] yt-dlp exited with code ${code} for job ${clipId}, falling back to ffmpeg stream trim...`);
+    runFfmpegStreamTrim(job, ext, notifyListeners);
   });
 
   return job;

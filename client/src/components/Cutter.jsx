@@ -141,7 +141,7 @@ export default function Cutter({
       eventSource.onmessage = (e) => {
         try {
           const update = JSON.parse(e.data);
-          setCurrentJob(prev => ({ ...prev, ...update }));
+          setCurrentJob(prev => { const next = { ...prev, ...update }; if (onClipCreated) onClipCreated(next); return next; });
 
           if (update.status === 'finished') {
             eventSource.close();
@@ -181,7 +181,7 @@ export default function Cutter({
         const res = await fetch(`/api/clips/status/${clipId}`);
         const data = await res.json();
         if (data.success && data.data) {
-          setCurrentJob(prev => ({ ...prev, ...data.data }));
+          setCurrentJob(prev => { const next = { ...prev, ...data.data }; if (onClipCreated) onClipCreated(next); return next; });
           if (data.data.status === 'finished') {
             clearInterval(timer);
             setIsTrimming(false);

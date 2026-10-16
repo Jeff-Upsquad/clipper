@@ -2,6 +2,16 @@ const { execFile } = require('child_process');
 const https = require('https');
 
 const cache = new Map();
+const streamCache = new Map();
+let ytDlpBlockedUntil = 0;
+
+function isYtDlpBlocked() {
+  return Date.now() < ytDlpBlockedUntil;
+}
+
+function markYtDlpBlocked() {
+  ytDlpBlockedUntil = Date.now() + 30 * 60 * 1000; // 30 minutes cooldown
+}
 
 /**
  * Extracts YouTube video ID from various URL formats or returns the ID if already clean
@@ -102,7 +112,7 @@ function fetchFromClipscutterApi(videoId) {
         'Origin': 'https://www.clipscutter.com',
         'Referer': 'https://www.clipscutter.com/'
       },
-      timeout: 10000
+      timeout: 15000
     };
 
     const req = https.request(options, (res) => {
@@ -133,6 +143,32 @@ function fetchFromClipscutterApi(videoId) {
 }
 
 /**
+ * Get a direct proxied HTTP stream URL for ffmpeg trimming
+ */
+async function getStreamUrl(videoId) {
+  const cached = streamCache.get(videoId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.url;
+  }
+
+  const apiData = await fetchFromClipscutterApi(videoId);
+  const streamUrl = apiData && Array.isArray(apiData.video) && apiData.video[0]
+    ? apiData.video[0].url
+    : null;
+
+  if (!streamUrl) {
+    throw new Error('No playable video stream found for this video');
+  }
+
+  streamCache.set(videoId, {
+    url: streamUrl,
+    expiresAt: Date.now() + 15 * 60 * 1000 // 15 minutes
+  });
+
+  return streamUrl;
+}
+
+/**
  * Get video info with caching and smart fallback
  */
 async function getVideoInfo(urlOrId) {
@@ -147,49 +183,63 @@ async function getVideoInfo(urlOrId) {
 
   let info = null;
 
-  // Try yt-dlp first
-  try {
-    const raw = await fetchWithYtDlp(videoId);
-    const duration = raw.duration || 0;
-    
-    // Extract available resolutions
-    const resolutions = new Set();
-    if (Array.isArray(raw.formats)) {
-      raw.formats.forEach(f => {
-        if (f.height) resolutions.add(`${f.height}p`);
-      });
+  // Try yt-dlp first unless recently blocked by YouTube bot check
+  if (!isYtDlpBlocked()) {
+    try {
+      const raw = await fetchWithYtDlp(videoId);
+      const duration = raw.duration || 0;
+
+      // Extract available resolutions
+      const resolutions = new Set();
+      if (Array.isArray(raw.formats)) {
+        raw.formats.forEach(f => {
+          if (f.height) resolutions.add(`${f.height}p`);
+        });
+      }
+
+      const availableRes = ['1080p', '720p', '480p', '360p', '240p', '144p'].map(res => ({
+        name: res,
+        is_available: resolutions.size === 0 || resolutions.has(res),
+        premium: false
+      }));
+
+      info = {
+        id: videoId,
+        title: raw.title || 'YouTube Video',
+        channel: raw.uploader || raw.channel || 'YouTube Creator',
+        duration: duration,
+        formattedDuration: formatSeconds(duration),
+        thumbnail: raw.thumbnail || `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+        views: raw.view_count,
+        description: raw.description ? raw.description.slice(0, 300) : '',
+        mp4_list: availableRes,
+        webm_list: availableRes,
+        audio_list: [
+          { name: 'MP3', bitrates: ['320 kbps', '256 kbps', '192 kbps', '128 kbps'], ext: 'mp3' },
+          { name: 'M4A', bitrates: ['256 kbps', '192 kbps', '128 kbps'], ext: 'm4a' },
+          { name: 'WebM Audio', bitrates: ['160 kbps', '128 kbps', '96 kbps'], ext: 'webm' },
+          { name: 'OGG', bitrates: ['192 kbps', '128 kbps'], ext: 'ogg' },
+          { name: 'OPUS', bitrates: ['160 kbps', '128 kbps', '96 kbps'], ext: 'opus' },
+          { name: 'WAV', bitrates: ['Lossless PCM'], ext: 'wav' }
+        ]
+      };
+    } catch (ytErr) {
+      if (ytErr.message && (ytErr.message.includes('Sign in to confirm') || ytErr.message.includes('not a bot'))) {
+        markYtDlpBlocked();
+      }
+      console.warn(`yt-dlp fetch failed for ${videoId}, trying fallback API:`, ytErr.message);
     }
+  }
 
-    const availableRes = ['1080p', '720p', '480p', '360p', '240p', '144p'].map(res => ({
-      name: res,
-      is_available: resolutions.size === 0 || resolutions.has(res),
-      premium: false
-    }));
-
-    info = {
-      id: videoId,
-      title: raw.title || 'YouTube Video',
-      channel: raw.uploader || raw.channel || 'YouTube Creator',
-      duration: duration,
-      formattedDuration: formatSeconds(duration),
-      thumbnail: raw.thumbnail || `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-      views: raw.view_count,
-      description: raw.description ? raw.description.slice(0, 300) : '',
-      mp4_list: availableRes,
-      webm_list: availableRes,
-      audio_list: [
-        { name: 'MP3', bitrates: ['320 kbps', '256 kbps', '192 kbps', '128 kbps'], ext: 'mp3' },
-        { name: 'M4A', bitrates: ['256 kbps', '192 kbps', '128 kbps'], ext: 'm4a' },
-        { name: 'WebM Audio', bitrates: ['160 kbps', '128 kbps', '96 kbps'], ext: 'webm' },
-        { name: 'OGG', bitrates: ['192 kbps', '128 kbps'], ext: 'ogg' },
-        { name: 'OPUS', bitrates: ['160 kbps', '128 kbps', '96 kbps'], ext: 'opus' },
-        { name: 'WAV', bitrates: ['Lossless PCM'], ext: 'wav' }
-      ]
-    };
-  } catch (ytErr) {
-    console.warn(`yt-dlp fetch failed for ${videoId}, trying fallback API:`, ytErr.message);
+  if (!info) {
     try {
       const apiData = await fetchFromClipscutterApi(videoId);
+      if (apiData && Array.isArray(apiData.video) && apiData.video[0] && apiData.video[0].url) {
+        streamCache.set(videoId, {
+          url: apiData.video[0].url,
+          expiresAt: Date.now() + 15 * 60 * 1000
+        });
+      }
       const duration = apiData.lengthSeconds || 0;
       info = {
         id: videoId,
@@ -242,5 +292,8 @@ async function getVideoInfo(urlOrId) {
 module.exports = {
   extractVideoId,
   getVideoInfo,
+  getStreamUrl,
+  isYtDlpBlocked,
+  markYtDlpBlocked,
   formatSeconds
 };
